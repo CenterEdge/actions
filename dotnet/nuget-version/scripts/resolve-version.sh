@@ -8,16 +8,40 @@ tag_prefix="${1:-}"
 semver_regex='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
 
 is_semver() {
+  # Validates whether a version string matches the SemVer 2.0.0 pattern.
+  #
+  # Input:
+  # - $1: version string to validate.
+  #
+  # Output:
+  # - No stdout output.
+  # - Exit status 0 when valid SemVer, non-zero when invalid.
   local version="$1"
   [[ "$version" =~ $semver_regex ]]
 }
 
 get_semver_core() {
+  # Extracts the SemVer core (major.minor.patch) from a version string.
+  #
+  # Input:
+  # - $1: full SemVer string (with or without prerelease/build metadata).
+  #
+  # Output:
+  # - Prints the core version, removing any -prerelease and +build metadata.
   local version="$1"
   echo "${version%%[-+]*}"
 }
 
 get_semver_prerelease() {
+  # Extracts only the prerelease identifiers from a SemVer string.
+  #
+  # Input:
+  # - $1: full SemVer string.
+  #
+  # Output:
+  # - Prints prerelease identifiers without the leading dash.
+  # - Prints an empty string when no prerelease segment exists.
+  # - Ignores any build metadata (+...).
   local version="$1"
   local core remainder prerelease
 
@@ -34,6 +58,22 @@ get_semver_prerelease() {
 }
 
 semver_compare() {
+  # Compares two SemVer 2.0.0 version strings.
+  #
+  # Inputs:
+  # - $1: left version to compare.
+  # - $2: right version to compare.
+  #
+  # Output:
+  # - Prints 1 when left > right.
+  # - Prints 0 when left == right.
+  # - Prints -1 when left < right.
+  #
+  # Comparison rules:
+  # - Build metadata is ignored.
+  # - Core version (major.minor.patch) is compared numerically.
+  # - If cores are equal, a version without prerelease outranks one with prerelease.
+  # - If both have prerelease, identifiers are compared left-to-right per SemVer.
   local left="$1"
   local right="$2"
   local left_core right_core left_prerelease right_prerelease
@@ -143,6 +183,15 @@ semver_compare() {
 }
 
 semver_gt() {
+  # Convenience predicate for strict SemVer greater-than.
+  #
+  # Inputs:
+  # - $1: left version.
+  # - $2: right version.
+  #
+  # Output:
+  # - No stdout output.
+  # - Exit status 0 when left > right, non-zero otherwise.
   local left="$1"
   local right="$2"
   [[ "$(semver_compare "$left" "$right")" -gt 0 ]]
@@ -153,6 +202,8 @@ run_number="${NUGET_VERSION_RUN_NUMBER:-}"
 ref_type="${NUGET_VERSION_REF_TYPE:-}"
 ref_name="${NUGET_VERSION_REF_NAME:-}"
 
+# The composite action always expects these to be provided by the workflow.
+# Fail fast with explicit messages so misconfigured workflows are easy to diagnose.
 if [[ -z "$default_branch" ]]; then
   echo "NUGET_VERSION_DEFAULT_BRANCH is required" >&2
   exit 1
@@ -163,6 +214,8 @@ if [[ -z "$run_number" ]]; then
   exit 1
 fi
 
+# Release-tag flow: when the current ref is a tag with the configured prefix,
+# strip the prefix and emit it as-is if it is valid SemVer.
 if [[ "$ref_type" == 'tag' && "$ref_name" == "$tag_prefix"* ]]; then
   release_version="${ref_name#"$tag_prefix"}"
   if is_semver "$release_version"; then
@@ -191,25 +244,35 @@ selected_version=''
 while IFS= read -r tag_name; do
   [[ "$tag_name" == "$tag_prefix"* ]] || continue
 
+  # Convert a raw tag name into a candidate version and ignore non-SemVer tags.
   candidate_version="${tag_name#"$tag_prefix"}"
   is_semver "$candidate_version" || continue
 
+  # Resolve the commit for the tag and only consider tags reachable from
+  # the default branch (matching README behavior for "most recent release tag
+  # on the default branch").
   tag_commit="$(git rev-list -n 1 "$tag_name")"
   if ! git merge-base --is-ancestor "$tag_commit" "$default_ref"; then
     continue
   fi
 
+  # Tags are processed newest-first by tag creator date. The first matching
+  # commit becomes the target commit; older commits are intentionally ignored.
   if [[ -z "$target_commit" ]]; then
     target_commit="$tag_commit"
     selected_version="$candidate_version"
     continue
   fi
 
+  # If multiple matching tags point to that same newest commit, choose the
+  # highest SemVer among them (for example, both v1.0.0 and v1.0.1 on one commit).
   if [[ "$tag_commit" == "$target_commit" ]] && semver_gt "$candidate_version" "$selected_version"; then
     selected_version="$candidate_version"
   fi
 done < <(git for-each-ref --sort=-creatordate --format='%(refname:strip=2)' refs/tags)
 
+# No matching SemVer tags on the default branch: start from the documented
+# baseline prerelease stream.
 if [[ -z "$selected_version" ]]; then
   echo "version=0.1.0-alpha.$run_number"
   echo 'is-release=false'
@@ -228,5 +291,6 @@ else
   resolved_version="$selected_major.$selected_minor.$(( selected_patch + 1 ))-alpha.$run_number"
 fi
 
+# Non-tag refs (branches/PRs) always produce prerelease output.
 echo "version=$resolved_version"
 echo 'is-release=false'
