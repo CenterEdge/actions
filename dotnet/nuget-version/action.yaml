@@ -22,7 +22,9 @@ runs:
   - name: Resolve NuGet package version
     id: resolve
     shell: bash
-    run: bash "${{ github.action_path }}/scripts/resolve-version.sh" '${{ inputs.tag-prefix }}' >> "$GITHUB_OUTPUT"
+    run: |
+      output=$(bash "${{ github.action_path }}/scripts/resolve-version.sh" '${{ inputs.tag-prefix }}')
+      printf '%s\n' "$output" | tee -a "$GITHUB_OUTPUT"
     env:
       NUGET_VERSION_REF_TYPE: ${{ github.ref_type }}
       NUGET_VERSION_REF_NAME: ${{ github.ref_name }}
