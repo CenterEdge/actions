@@ -1,0 +1,145 @@
+on:
+  push:
+    branches: [main]
+    # Only trigger when these paths are changed in the push event
+    paths:
+    - dotnet/nuget-version/**
+    - .github/workflows/test-dotnet-nuget-version.yaml
+  pull_request:
+    # Only trigger when these paths are changed in the pull request
+    paths:
+    - dotnet/nuget-version/**
+    - .github/workflows/test-dotnet-nuget-version.yaml
+
+name: Test - dotnet/nuget-version
+jobs:
+  script-behavior:
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Script - matching release tag
+      run: |
+        output="$(bash ./dotnet/nuget-version/scripts/resolve-version.sh 'release/')"
+        version="$(echo "$output" | awk -F= '/^version=/{print $2}')"
+        is_release="$(echo "$output" | awk -F= '/^is-release=/{print $2}')"
+        echo "resolver output:"
+        echo "$output"
+        echo "parsed version=$version is_release=$is_release"
+        [[ "$version" == '1.0.0-beta.1' ]]
+        [[ "$is_release" == 'true' ]]
+      env:
+        NUGET_VERSION_REF_TYPE: tag
+        NUGET_VERSION_REF_NAME: release/1.0.0-beta.1
+        NUGET_VERSION_DEFAULT_BRANCH: main
+        NUGET_VERSION_RUN_NUMBER: 234
+
+    - name: Script - stable latest tag increments patch
+      run: |
+        git branch -f test-default-branch HEAD
+        prefix="stable-case-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
+        git tag "${prefix}1.0.0" HEAD
+
+        output="$(bash ./dotnet/nuget-version/scripts/resolve-version.sh "$prefix")"
+        version="$(echo "$output" | awk -F= '/^version=/{print $2}')"
+        is_release="$(echo "$output" | awk -F= '/^is-release=/{print $2}')"
+        echo "resolver output:"
+        echo "$output"
+        echo "parsed version=$version is_release=$is_release"
+        [[ "$version" == '1.0.1-alpha.234' ]]
+        [[ "$is_release" == 'false' ]]
+      env:
+        NUGET_VERSION_REF_TYPE: branch
+        NUGET_VERSION_REF_NAME: test-default-branch
+        NUGET_VERSION_DEFAULT_BRANCH: test-default-branch
+        NUGET_VERSION_RUN_NUMBER: 234
+
+    - name: Script - prerelease latest tag replaces suffix
+      run: |
+        git branch -f test-default-branch HEAD
+        prefix="pre-case-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
+        git tag "${prefix}1.0.0-beta.1" HEAD
+
+        output="$(bash ./dotnet/nuget-version/scripts/resolve-version.sh "$prefix")"
+        version="$(echo "$output" | awk -F= '/^version=/{print $2}')"
+        is_release="$(echo "$output" | awk -F= '/^is-release=/{print $2}')"
+        echo "resolver output:"
+        echo "$output"
+        echo "parsed version=$version is_release=$is_release"
+        [[ "$version" == '1.0.0-alpha.234' ]]
+        [[ "$is_release" == 'false' ]]
+      env:
+        NUGET_VERSION_REF_TYPE: branch
+        NUGET_VERSION_REF_NAME: test-default-branch
+        NUGET_VERSION_DEFAULT_BRANCH: test-default-branch
+        NUGET_VERSION_RUN_NUMBER: 234
+
+    - name: Script - same commit prefers highest semver tag
+      run: |
+        git branch -f test-default-branch HEAD
+        prefix="same-commit-case-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
+        git tag "${prefix}1.0.0-beta.1" HEAD
+        git tag "${prefix}1.0.0" HEAD
+
+        output="$(bash ./dotnet/nuget-version/scripts/resolve-version.sh "$prefix")"
+        version="$(echo "$output" | awk -F= '/^version=/{print $2}')"
+        is_release="$(echo "$output" | awk -F= '/^is-release=/{print $2}')"
+        echo "resolver output:"
+        echo "$output"
+        echo "parsed version=$version is_release=$is_release"
+        [[ "$version" == '1.0.1-alpha.234' ]]
+        [[ "$is_release" == 'false' ]]
+      env:
+        NUGET_VERSION_REF_TYPE: branch
+        NUGET_VERSION_REF_NAME: test-default-branch
+        NUGET_VERSION_DEFAULT_BRANCH: test-default-branch
+        NUGET_VERSION_RUN_NUMBER: 234
+
+    - name: Script - no prior release tag fallback
+      run: |
+        git branch -f test-default-branch HEAD
+        prefix="no-tag-case-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
+
+        output="$(bash ./dotnet/nuget-version/scripts/resolve-version.sh "$prefix")"
+        version="$(echo "$output" | awk -F= '/^version=/{print $2}')"
+        is_release="$(echo "$output" | awk -F= '/^is-release=/{print $2}')"
+        echo "resolver output:"
+        echo "$output"
+        echo "parsed version=$version is_release=$is_release"
+        [[ "$version" == '0.1.0-alpha.234' ]]
+        [[ "$is_release" == 'false' ]]
+      env:
+        NUGET_VERSION_REF_TYPE: branch
+        NUGET_VERSION_REF_NAME: test-default-branch
+        NUGET_VERSION_DEFAULT_BRANCH: test-default-branch
+        NUGET_VERSION_RUN_NUMBER: 234
+
+  action-wiring:
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Create local release tag
+      run: |
+        git tag "wiring-case-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/2.1.3" "origin/${{ github.event.repository.default_branch }}"
+
+    - name: Resolve version with composite action
+      id: action
+      uses: ./dotnet/nuget-version
+      with:
+        tag-prefix: wiring-case-${{ github.run_id }}-${{ github.run_attempt }}/
+
+    - name: Assert action outputs
+      run: |
+        echo "action output version=${{ steps.action.outputs.version }}"
+        echo "action output is-release=${{ steps.action.outputs.is-release }}"
+        [[ "${{ steps.action.outputs.version }}" == '2.1.4-alpha.${{ github.run_number }}' ]]
+        [[ "${{ steps.action.outputs.is-release }}" == 'false' ]]
