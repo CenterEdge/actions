@@ -2,7 +2,8 @@
 
 set -euo pipefail
 
-tag_prefix="${1:-}"
+tag_prefix_pattern="${1:-}"
+tag_prefix_regex="^${tag_prefix_pattern}"
 
 # SemVer 2.0.0 matcher used for both release-tag detection and tag filtering.
 semver_regex='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
@@ -214,10 +215,11 @@ if [[ -z "$run_number" ]]; then
   exit 1
 fi
 
-# Release-tag flow: when the current ref is a tag with the configured prefix,
-# strip the prefix and emit it as-is if it is valid SemVer.
-if [[ "$ref_type" == 'tag' && "$ref_name" == "$tag_prefix"* ]]; then
-  release_version="${ref_name#"$tag_prefix"}"
+# Release-tag flow: when the current ref is a tag with a matching prefix regex,
+# remove the matched prefix and emit the remainder as-is if it is valid SemVer.
+if [[ "$ref_type" == 'tag' && "$ref_name" =~ $tag_prefix_regex ]]; then
+  matched_prefix="${BASH_REMATCH[0]}"
+  release_version="${ref_name#"$matched_prefix"}"
   if is_semver "$release_version"; then
     echo "version=$release_version"
     echo 'is-release=true'
@@ -242,10 +244,12 @@ target_commit=''
 selected_version=''
 
 while IFS= read -r tag_name; do
-  [[ "$tag_name" == "$tag_prefix"* ]] || continue
+  [[ "$tag_name" =~ $tag_prefix_regex ]] || continue
+
+  matched_prefix="${BASH_REMATCH[0]}"
 
   # Convert a raw tag name into a candidate version and ignore non-SemVer tags.
-  candidate_version="${tag_name#"$tag_prefix"}"
+  candidate_version="${tag_name#"$matched_prefix"}"
   is_semver "$candidate_version" || continue
 
   # Resolve the commit for the tag and only consider tags reachable from

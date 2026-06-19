@@ -38,13 +38,30 @@ jobs:
         NUGET_VERSION_DEFAULT_BRANCH: main
         NUGET_VERSION_RUN_NUMBER: 234
 
+    - name: Script - regex release tag prefix [vV]
+      run: |
+        output="$(bash ./dotnet/nuget-version/scripts/resolve-version.sh '[vV]')"
+        version="$(echo "$output" | awk -F= '/^version=/{print $2}')"
+        is_release="$(echo "$output" | awk -F= '/^is-release=/{print $2}')"
+        echo "resolver output:"
+        echo "$output"
+        echo "parsed version=$version is_release=$is_release"
+        [[ "$version" == '1.2.3' ]]
+        [[ "$is_release" == 'true' ]]
+      env:
+        NUGET_VERSION_REF_TYPE: tag
+        NUGET_VERSION_REF_NAME: V1.2.3
+        NUGET_VERSION_DEFAULT_BRANCH: main
+        NUGET_VERSION_RUN_NUMBER: 234
+
     - name: Script - stable latest tag increments patch
       run: |
         git branch -f test-default-branch HEAD
-        prefix="stable-case-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
-        git tag "${prefix}1.0.0" HEAD
+        prefix_root="stable-case-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        prefix_regex="${prefix_root}/"
+        git tag "${prefix_root}/1.0.0" HEAD
 
-        output="$(bash ./dotnet/nuget-version/scripts/resolve-version.sh "$prefix")"
+        output="$(bash ./dotnet/nuget-version/scripts/resolve-version.sh "$prefix_regex")"
         version="$(echo "$output" | awk -F= '/^version=/{print $2}')"
         is_release="$(echo "$output" | awk -F= '/^is-release=/{print $2}')"
         echo "resolver output:"
@@ -61,10 +78,11 @@ jobs:
     - name: Script - prerelease latest tag replaces suffix
       run: |
         git branch -f test-default-branch HEAD
-        prefix="pre-case-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
-        git tag "${prefix}1.0.0-beta.1" HEAD
+        prefix_root="pre-case-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        prefix_regex="${prefix_root}/"
+        git tag "${prefix_root}/1.0.0-beta.1" HEAD
 
-        output="$(bash ./dotnet/nuget-version/scripts/resolve-version.sh "$prefix")"
+        output="$(bash ./dotnet/nuget-version/scripts/resolve-version.sh "$prefix_regex")"
         version="$(echo "$output" | awk -F= '/^version=/{print $2}')"
         is_release="$(echo "$output" | awk -F= '/^is-release=/{print $2}')"
         echo "resolver output:"
@@ -81,11 +99,12 @@ jobs:
     - name: Script - same commit prefers highest semver tag
       run: |
         git branch -f test-default-branch HEAD
-        prefix="same-commit-case-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
-        git tag "${prefix}1.0.0-beta.1" HEAD
-        git tag "${prefix}1.0.0" HEAD
+        prefix_root="same-commit-case-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        prefix_regex="${prefix_root}/"
+        git tag "${prefix_root}/1.0.0-beta.1" HEAD
+        git tag "${prefix_root}/1.0.0" HEAD
 
-        output="$(bash ./dotnet/nuget-version/scripts/resolve-version.sh "$prefix")"
+        output="$(bash ./dotnet/nuget-version/scripts/resolve-version.sh "$prefix_regex")"
         version="$(echo "$output" | awk -F= '/^version=/{print $2}')"
         is_release="$(echo "$output" | awk -F= '/^is-release=/{print $2}')"
         echo "resolver output:"
@@ -102,9 +121,10 @@ jobs:
     - name: Script - no prior release tag fallback
       run: |
         git branch -f test-default-branch HEAD
-        prefix="no-tag-case-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}/"
+        prefix_root="no-tag-case-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        prefix_regex="${prefix_root}/"
 
-        output="$(bash ./dotnet/nuget-version/scripts/resolve-version.sh "$prefix")"
+        output="$(bash ./dotnet/nuget-version/scripts/resolve-version.sh "$prefix_regex")"
         version="$(echo "$output" | awk -F= '/^version=/{print $2}')"
         is_release="$(echo "$output" | awk -F= '/^is-release=/{print $2}')"
         echo "resolver output:"
@@ -135,7 +155,7 @@ jobs:
       id: action
       uses: ./dotnet/nuget-version
       with:
-        tag-prefix: wiring-case-${{ github.run_id }}-${{ github.run_attempt }}/
+        tag-prefix: '[wW]iring-case-${{ github.run_id }}-${{ github.run_attempt }}/'
 
     - name: Assert action outputs
       run: |

@@ -3,7 +3,7 @@ description: Generates NuGet package versions from release tags and run metadata
 
 inputs:
   tag-prefix:
-    description: Prefix applied to release tags, such as v or release/
+    description: Regex matched at the start of release tags; script adds ^ automatically (for example, [vV] or release/)
     required: false
     default: ''
 
