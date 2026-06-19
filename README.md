@@ -1,2 +1,3 @@
-# actions
-Common GitHub Actions reused by CenterEdge repositorys
+# CenterEdge Actions
+
+Common GitHub Actions reused by CenterEdge repositories.

@@ -1,0 +1,45 @@
+on:
+  release:
+    types: [published, edited]
+
+name: Release - Update major tag
+run-name: ${{ github.event.release.tag_name }}
+
+jobs:
+  update:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+
+    - uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - id: semver
+      run: |
+        version='${{ github.event.release.tag_name }}'
+
+        major_version=$(echo "$version" | cut -d '.' -f 1 | cut -d 'v' -f 2)
+        minor_version=$(echo "$version" | cut -d '.' -f 2)
+        patch_version=$(echo "$version" | cut -d '.' -f 3)
+
+        echo "major=$major_version" >> $GITHUB_OUTPUT
+        echo "minor=$minor_version" >> $GITHUB_OUTPUT
+        echo "patch=$patch_version" >> $GITHUB_OUTPUT
+
+    - if: ${{ steps.semver.outputs.major == '' }}
+      run: |
+        echo "::error::Major version not found"
+        exit 1
+
+    - name: Git config
+      run: |
+        git config user.name github-actions
+        git config user.email github-actions@github.com
+
+    - name: Tag new target -> ${{ steps.semver.outputs.major }}
+      run: git tag -f "v${{ steps.semver.outputs.major }}"
+
+    - name: Push new tag -> ${{ steps.semver.outputs.major }}
+      run: git push origin "v${{ steps.semver.outputs.major }}" --force
